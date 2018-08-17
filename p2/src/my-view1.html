@@ -1,0 +1,241 @@
+<link rel="import" href="../bower_components/polymer/polymer-element.html">
+<link rel="import" href="../bower_components/iron-ajax/iron-ajax.html">
+<link rel="import" href="../bower_components/isw-snackbar/isw-snackbar-remote.html">
+<link rel="import" href="../bower_components/paper-card/paper-card.html">
+<link rel="import" href="../bower_components/iron-collapse/iron-collapse.html">
+<link rel="import" href="../bower_components/file-drop-zone/file-drop-zone.html">
+<link rel="import" href="../bower_components/google-map/google-map.html">
+<link rel="import" href="../bower_components/google-map/google-map-marker.html">
+<link rel="import" href="shared-styles.html">
+
+
+<dom-module id="my-view1">
+  <template>
+    <style include="shared-styles">
+      :host { display: block; padding: 10px; }
+      file-drop-zone {
+        border: 1px dashed transparent;
+        color: #aaa;
+        background-color: #efefef;
+        width: 100%;height: 120px;
+        margin:0.3em; transition: all .3s;
+      }
+      file-drop-zone.dragover {border: 1px dashed #E91E63; transition: all .3s;}
+      file-drop-zone:hover > [slot='drop-zone'],
+      file-drop-zone.dragover > [slot='drop-zone'] {color: #E91E63; transition: all .3s;}
+      file-drop-zone.errored {background-color: #FFEBEE; transition: all .3s;}
+      file-drop-zone[has-files] {color: #2196F3;transition: all .3s;}
+      [slot='drop-zone'] {
+        text-align: center;
+        font-size: 1em;
+        --iron-icon-height: 64px;
+        --iron-icon-width: 64px;
+      }
+      [slot='drop-zone'] > .title { font-size: 1em;}
+      [slot='drop-zone'] > .small{font-size: 0.6em;}
+    </style>
+    <isw-snackbar-remote
+      id="snack"
+      duration="5000">
+    </isw-snackbar-remote>
+    <iron-ajax on-response="ajax_put_spot_done" method="POST"
+      content-type="application/x-www-form-urlencoded"
+      url="http://stephanegoyet.fr/p2/php/cleaner.php?fonction=addLieu" 
+      handle-as="json"
+      last-response="{{ajaxR}}" id="insert_location"> </iron-ajax> 
+
+    <iron-ajax
+      auto on-response="ajax_get_done"
+      url="http://stephanegoyet.fr/p2/php/cleaner.php?fonction=getLieu" 
+      handle-as="json"
+      last-response="{{ajaxR}}" id="get_location"> </iron-ajax> 
+
+    <div class="card">
+      <h1>Les lieux nettoyés</h1>
+      <input type="text" placeholder="nettoyeur" name="nettoyeur">
+      <button  style="visibility:hidden;" id='button_drop'  on-click="toggle">Ajouter un lieu</button>
+      <div id='image_content'></div>
+
+      <iron-collapse  id="collapse_add">
+        
+        <file-drop-zone
+          multiple accept="image/*" files="{{filesBefore}}" last-error="{{error}}" on-error="onError" on-change="filesBeforeDroped">
+          <div slot="drop-zone" class="layout vertical center center-justified">
+            <div class="title">Déposez ici vos photos (GPS localisées) <b>avant</b> le nettoyage</div>
+            <div class="small">[[error.message]]</div>
+            <template is="dom-repeat" items="[[filesBefore]]">
+              <div class="small">[[item.name]]</div>
+            </template>
+          </div>
+        </file-drop-zone>
+
+        <file-drop-zone
+          multiple accept="image/*" files="{{filesAfter}}" last-error="{{error}}" on-error="onError" on-change="filesAfterDroped">
+          <div slot="drop-zone" class="layout vertical center center-justified">
+            <div class="title">Déposez ici vos photos (GPS localisées) <b>après</b> le nettoyage</div>
+            <div class="small">[[error.message]]</div>
+            <template is="dom-repeat" items="[[filesAfter]]">
+              <div class="small">[[item.name]]</div>
+            </template>
+          </div>
+        </file-drop-zone>
+      </iron-collapse>
+      
+      <google-map fit-to-markers api-key="AIzaSyArkZJuHxhok98vMZhZzVTiNiduOr_5_LQ" style="width: 100%;height:70vh;margin-top: 1em;" id="map">
+        <template is="dom-repeat" items="[[markers]]">
+          <google-map-marker
+            slot="markers"
+            click-events=true
+            id_="[[item.id]]"
+            latitude="[[item.latitude]]"
+            longitude="[[item.longitude]]"
+            on-google-map-marker-click="markerClicked">
+            <img  src="[[item.photo_path]]">
+          </google-map-marker>
+        </template>
+      </google-map>
+    </div>
+  </template>
+
+  <script>
+    class MyView1 extends Polymer.Element {
+      static get is() { return 'my-view1'; }
+      onError(){ console.log("err");  }
+      toggle() {
+        this.$.collapse_add.toggle();
+        this.$.collapse_add.setAttribute('aria-expanded', this.$.collapse_add.opened);
+        this.$.button_drop.innerHTML=(this.$.button_drop.innerHTML=='x'?  'Ajouter un lieu':'x');
+      }
+      convertCoord(ref,value){
+       let result =value[0].numerator 
+                  + value[1].numerator /(60 * value[1].denominator) 
+                  + value[2].numerator / (3600 * value[2].denominator);
+        if (ref!='E' && ref!='N') result=0-result;
+        return result;
+      }
+      filesBeforeDroped(){
+        this.filesDroped(this.filesBefore,"before");
+      }
+      filesAfterDroped(){
+        this.filesDroped(this.filesAfter,"after");
+      }
+      
+      filesDroped(filesXs,beforeOrAfter){
+        let this_=this;
+        filesXs.forEach( (file,i,files)=>{
+          var reader = new FileReader();
+          this_.$.insert_location.body={ when:beforeOrAfter};
+          reader.onload = (e)=>{
+            let img = document.createElement('img');
+            img.onload = function() {
+              let ratio=300/this.width;
+              this_.$.insert_location.body.image_scaled=this_.imageToDataUri(this, this.width*ratio,this.height*ratio);
+              
+              EXIF.getData(file, function() {
+                this_.setExifInfo(file,this,this_);
+                this_.$.insert_location.body.user=this_.user;
+                this_.$.insert_location.generateRequest(); 
+              });
+            }
+            img.src = e.target.result;
+          }
+          reader.readAsDataURL(file);
+        });
+      }
+
+      setExifInfo(file,context,this_){
+        var latitude=EXIF.getTag(context, "GPSLatitude");
+        var longitude=EXIF.getTag(context, "GPSLongitude");        
+        if (latitude && longitude) {
+                this_.$.insert_location.body.longitude =
+                  this_.convertCoord(EXIF.getTag(context, "GPSLongitudeRef"),longitude);
+                this_.$.insert_location.body.latitude =
+                  this_.convertCoord(EXIF.getTag(context, "GPSLatitudeRef"),latitude);
+                this_.$.insert_location.body.photo_data = EXIF.pretty(context);
+        }else{
+   
+          this_.$.snack.message= "L'image ne contient pas d'informations sur sa localisation";
+          this_.$.snack.open();
+          throw this_$.snack.message;
+        }
+      }
+
+      imageToDataUri(img, width, height) {
+        var canvas = document.createElement('canvas'),
+        ctx = canvas.getContext('2d');
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
+        //console.log(canvas.toDataURL());
+        return canvas.toDataURL();
+      }
+      ajax_put_spot_done(){
+        console.log(this.$.insert_location.lastResponse);      
+        if (this.ajaxR.hasOwnProperty("error")){
+          console.error(this.ajaxR);
+          this.$.snack.message= "Une erreur est survenue";
+          this.$.snack.open();
+        }else{
+          let marker = document.createElement('google-map-marker');
+          marker.longitude = this.longitude;
+          marker.latitude = this.latitude;
+          Polymer.dom(this.$.map).appendChild(marker);
+
+          this.$.snack.message= "Votre image est enregistrée";
+          this.$.snack.open();
+
+        }
+      }
+      ajax_get_done(){    
+        if (this.ajaxR.hasOwnProperty("error")){
+          console.error(this.ajaxR);
+        }else{
+          console.log(this.ajaxR);
+          let this_=this;
+          this.ajaxR.every( (row)=>{
+            this.push('markers', row);
+            console.log("marker added");
+          });
+        }
+      }
+
+      static get properties() {
+        return  {
+                  markers: {type :"Array", value:[]},
+                  user: {type:"String", observer: '_observeUser'}
+                };
+      }
+
+      _observeUser(){
+        console.log("observed",this.user === undefined,this.user);
+        if (this.user === undefined)
+          this.$.button_drop.style='visibility:hidden;';
+        else
+          this.$.button_drop.style='visibility:visible;';
+      }
+ 
+      markerClicked(a,b,c,d) {
+        var imageId=a.model.children[1].children[0].id_;
+        console.log("id is ",a.model.children[1].children[0].src);
+
+       /* var xmlHttp = new XMLHttpRequest();
+        xmlHttp.onreadystatechange= function(){
+          if(xmlHttp.readyState == 4 && xmlHttp.status == 200) {
+              console.log("done",imageId);
+              document.getElementById(imageId).src=xmlHttp.responseText;
+          }
+        };
+        xmlHttp.open( "GET", a.model.children[1].children[0].src.replace("/picture","/p2/picture"),true); 
+        xmlHttp.send( null );
+        */
+
+      }
+
+    
+    }
+
+    window.customElements.define(MyView1.is, MyView1);
+
+  </script>
+  <script type="text/javascript" src="../bower_components/exif-js/exif.js"></script>
+</dom-module>

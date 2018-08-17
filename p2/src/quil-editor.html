@@ -1,0 +1,43 @@
+<link rel="import" href="../bower_components/polymer/polymer-element.html">
+<link rel="import" href="shared-styleq.html">
+
+<script src="quill/quill.min.js"></script>
+
+<!--<link href="quill/quill.core.css" rel="stylesheet">-->
+
+
+<dom-module id="quil-editor">
+  <template>
+  	<style include="shared-styleq">
+	</style>
+  	<div id='editableElement'>
+
+  	</div>
+  </template>
+
+<script>
+	class QuilEditor extends Polymer.Element {
+      	static get is() { return 'quil-editor'; }
+ 
+ 		ready(){
+ 			super.ready();
+ 			var quill = new Quill(this.$.editableElement, {
+  				modules: { 
+  					toolbar: true  
+      			},
+  				placeholder: 'Proposez un nouvel article..',
+  				theme: 'snow'
+			});
+ 		}
+     	static get properties() {
+    	 	return  {
+        		user: {type:"String", observer: '_observeUser'},
+    		};
+    	}
+
+    	_observeUser(){
+    	}
+    }
+    window.customElements.define(QuilEditor.is, QuilEditor);
+</script>
+</dom-module>
